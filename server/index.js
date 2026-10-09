@@ -3,12 +3,21 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import os from 'node:os';
 import { WebSocketServer } from 'ws';
 import { buildGraph } from './graph.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = Number(process.env.PORT || 4719);
-const CLAUDE_BIN = process.env.CLAUDE_BIN || 'claude';
+function findClaude() {
+  if (process.env.CLAUDE_BIN) return process.env.CLAUDE_BIN;
+  const home = os.homedir();
+  const dirs = [...(process.env.PATH || '').split(path.delimiter), `${home}/.local/bin`, `${home}/.claude/local`,
+    `${home}/.npm-global/bin`, '/usr/local/bin', '/opt/homebrew/bin', `${home}/.volta/bin`];
+  for (const d of dirs) { const f = path.join(d, 'claude'); try { fs.accessSync(f, fs.constants.X_OK); return f; } catch {} }
+  return 'claude';
+}
+const CLAUDE_BIN = findClaude();
 const sessionFile = path.join(root, '.jarvis-session');
 
 const SYSTEM = `You are JARVIS, the operations assistant for Ohjiya (Thamer's business). 
@@ -92,7 +101,7 @@ wss.on('connection', (ws) => {
     });
     let err = '';
     proc.stderr.on('data', (d) => { err += d; });
-    proc.on('error', (e) => { send({ type: 'error', text: `Cannot start "${CLAUDE_BIN}": ${e.message}` }); proc = null; });
+    proc.on('error', (e) => { send({ type: 'error', text: `Cannot start "${CLAUDE_BIN}": ${e.message}. Install Claude Code (npm i -g @anthropic-ai/claude-code), run "which claude" in Terminal, then restart with: CLAUDE_BIN=<that path> npm start` }); proc = null; });
     proc.on('close', (code) => {
       if (code && err) send({ type: 'error', text: err.slice(-500) });
       send({ type: 'done' }); proc = null;
@@ -114,4 +123,4 @@ wss.on('connection', (ws) => {
   }
 });
 
-server.listen(PORT, '127.0.0.1', () => console.log(`JARVIS on http://localhost:${PORT}`));
+server.listen(PORT, '127.0.0.1', () => console.log(`JARVIS on http://localhost:${PORT} (claude: ${CLAUDE_BIN})`));
