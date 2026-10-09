@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JARVIS · Ohjiya</title>
+<style>
+:root{--bg:#07090d;--panel:#0d1118;--line:#1b2330;--fg:#d8e2ee;--dim:#6f8099;--acc:#33d6c4;--warn:#ffb454}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;height:100vh;display:flex;overflow:hidden}
+#chat{flex:0 0 58%;display:flex;flex-direction:column;border-right:1px solid var(--line);min-width:320px}
+body.graphfull #chat{display:none}
+#graphwrap{flex:1;position:relative;min-width:0}
+#graph{position:absolute;inset:0}
+header{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line)}
+header b{letter-spacing:.2em;color:var(--acc)}
+header .sp{flex:1}
+button,select{background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:5px 10px;font:inherit;cursor:pointer}
+button:hover{border-color:var(--acc)}
+button.on{border-color:var(--acc);color:var(--acc)}
+button.danger.on{border-color:var(--warn);color:var(--warn)}
+#log{flex:1;overflow:auto;padding:16px 14px;display:flex;flex-direction:column;gap:12px}
+.m{max-width:92%;white-space:pre-wrap;word-wrap:break-word}
+.m.u{align-self:flex-end;background:#12202a;border:1px solid #1d3442;border-radius:10px;padding:8px 12px}
+.m.a{align-self:flex-start}
+.chip{display:inline-block;font-size:12px;color:var(--dim);border:1px solid var(--line);border-radius:12px;padding:1px 9px;margin:2px 4px 2px 0}
+.chip.tool{color:var(--acc);border-color:#1d4a47}
+.err{color:#ff6b6b}
+#ctx{display:flex;flex-wrap:wrap;gap:4px;padding:0 14px}
+#ctx .chip{cursor:pointer;color:var(--warn);border-color:#4a3a1d}
+form{display:flex;gap:8px;padding:12px 14px;border-top:1px solid var(--line)}
+textarea{flex:1;resize:none;background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:9px 11px;font:inherit;height:44px}
+textarea:focus{outline:none;border-color:var(--acc)}
+#info{position:absolute;left:12px;bottom:12px;right:12px;max-width:340px;background:#0d1118d9;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:12px;pointer-events:none}
+#legend{position:absolute;top:10px;left:12px;font-size:11px;color:var(--dim)}
+#legend i{display:inline-block;width:8px;height:8px;border-radius:50%;margin:0 4px 0 8px}
+#gtools{position:absolute;top:8px;right:10px;display:flex;gap:6px}
+#ring{position:absolute;right:14px;bottom:14px;width:46px;height:46px;border-radius:50%;border:2px solid #1d4a47;box-shadow:0 0 12px #33d6c433}
+#ring.busy{border-color:var(--acc);animation:sp 1.2s linear infinite;border-top-color:transparent}
+@keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<section id="chat">
+  <header>
+    <b>J.A.R.V.I.S</b><span style="color:var(--dim)">Ohjiya</span><span class="sp"></span>
+    <select id="lang"><option value="en-US">EN</option><option value="ar-SA">AR</option></select>
+    <button id="mic" title="Hold to talk / click to toggle">🎤</button>
+    <button id="spk" title="Speak replies">🔊</button>
+    <button id="act" class="danger" title="Act mode: Claude may use write tools (acceptEdits). Off = read-only.">Act: off</button>
+    <button id="reset" title="New conversation">New</button>
+    <button id="gfull" title="Show/hide chat">⤢</button>
+  </header>
+  <div id="log"></div>
+  <div id="ctx"></div>
+  <form id="f">
+    <textarea id="t" placeholder='Ask… "pipeline vs plan", "draft outreach for Al Muhaidib"'></textarea>
+    <button id="send">Send</button><button id="stop" type="button">■</button>
+  </form>
+</section>
+<section id="graphwrap">
+  <div id="graph"></div><div id="legend"></div><div id="gtools"><button id="fit">Fit</button></div>
+  <div id="info">Click a node to attach it to your next message.</div><div id="ring"></div>
+</section>
+<script src="/vendor/3d-force-graph.js"></script>
+<script>
+const $=s=>document.querySelector(s);
+const COLORS={core:'#ffffff',doc:'#c9d1d9',stream:'#ffb454',segment:'#7aa2ff',tool:'#33d6c4',lead:'#ff7eb6',task:'#f2cc60'};
+$('#legend').innerHTML=Object.entries(COLORS).map(([k,c])=>`<i style="background:${c}"></i>${k}`).join('');
+const active=new Map(); let selected=new Map(); let G;
+
+fetch('/api/graph').then(r=>r.json()).then(data=>{
+  G=ForceGraph3D({rendererConfig:{antialias:false,powerPreference:'low-power'}})($('#graph'))
+    .graphData(data).backgroundColor('#07090d').nodeResolution(8).nodeRelSize(4)
+    .nodeVal(n=>n.val).nodeLabel(n=>`${n.name} <span style="opacity:.6">(${n.kind})</span>`)
+    .nodeColor(n=>active.has(n.id)?'#ffffff':selected.has(n.id)?'#ffb454':COLORS[n.kind])
+    .nodeOpacity(.92).linkColor(l=>active.has(l.source.id)||active.has(l.target.id)?'#33d6c4':'#2a3a4d')
+    .linkWidth(l=>active.has(l.source.id)||active.has(l.target.id)?1.6:.3)
+    .linkDirectionalParticles(l=>active.has(l.source.id)||active.has(l.target.id)?3:0).linkDirectionalParticleWidth(1.6)
+    .onNodeClick(n=>{toggleCtx(n);const d=1+Math.hypot(n.x,n.y,n.z)/60;G.cameraPosition({x:n.x*d,y:n.y*d,z:n.z*d},n,800)})
+    .onNodeHover(n=>{if(n)showInfo(n)});
+  G.d3Force('charge').strength(-60); addEventListener('resize',fit);fit();
+});
+function fit(){if(G){G.width($('#graphwrap').clientWidth).height($('#graphwrap').clientHeight)}}
+$('#fit').onclick=()=>G&&G.zoomToFit(600,40);
+$('#gfull').onclick=()=>{document.body.classList.toggle('graphfull');setTimeout(fit,50)};
+function showInfo(n){
+  let h=`<b>${n.name}</b> · ${n.kind}`;
+  if(n.target)h+=`<br>Targets Y1/Y2/Y3: ${n.target.join(' / ')} ${n.unit}${n.actual==null?' · actual: not connected yet':''}`;
+  if(n.tag)h+=`<br>CRM tag: ${n.tag} (segment ${n.crmSegmentId}) · focus #${n.focusRank}`;
+  if(n.status)h+=`<br>status: ${n.status}`;
+  $('#info').innerHTML=h;
+}
+function toggleCtx(n){selected.has(n.id)?selected.delete(n.id):selected.set(n.id,{kind:n.kind,name:n.name});renderCtx();showInfo(n);G.nodeColor(G.nodeColor())}
+function renderCtx(){$('#ctx').innerHTML='';selected.forEach((v,k)=>{const c=document.createElement('span');c.className='chip';c.textContent=v.name+' ✕';c.onclick=()=>{selected.delete(k);renderCtx();G&&G.nodeColor(G.nodeColor())};$('#ctx').append(c)})}
+function pulse(id){if(!id||!G)return;active.set(id,1);G.nodeColor(G.nodeColor());G.linkColor(G.linkColor());G.linkDirectionalParticles(G.linkDirectionalParticles());
+  setTimeout(()=>{active.delete(id);G.nodeColor(G.nodeColor());G.linkColor(G.linkColor());G.linkDirectionalParticles(G.linkDirectionalParticles())},4000)}
+
+// ---- chat ----
+let ws,cur=null,act=false,speak=false,busy=false,reply='';
+function connect(){ws=new WebSocket(`ws://${location.host}`);ws.onclose=()=>setTimeout(connect,1500);ws.onmessage=e=>onMsg(JSON.parse(e.data))}
+connect();
+function add(cls,text){const d=document.createElement('div');d.className='m '+cls;d.textContent=text||'';$('#log').append(d);$('#log').scrollTop=1e9;return d}
+function onMsg(m){
+  if(m.type==='start'){busy=true;reply='';cur=add('a');$('#ring').classList.add('busy')}
+  else if(m.type==='text'){reply+=m.text;cur.textContent=reply;$('#log').scrollTop=1e9}
+  else if(m.type==='tool'){const c=document.createElement('span');c.className='chip tool';c.textContent='⚙ '+m.name.replace(/^mcp__/,'').replace('__',' › ');$('#log').insertBefore(c,cur);pulse(m.node)}
+  else if(m.type==='error'){add('a err',m.text)}
+  else if(m.type==='result'&&m.cost!=null){const c=document.createElement('span');c.className='chip';c.textContent=`${(m.ms/1000).toFixed(1)}s`;$('#log').append(c)}
+  else if(m.type==='done'){busy=false;$('#ring').classList.remove('busy');if(speak&&reply)say(reply)}
+  else if(m.type==='reset'){$('#log').innerHTML=''}
+}
+$('#f').onsubmit=e=>{e.preventDefault();const text=$('#t').value.trim();if(!text||busy)return;
+  add('u',(selected.size?'['+[...selected.values()].map(v=>v.name).join(', ')+'] ':'')+text);
+  ws.send(JSON.stringify({type:'chat',text,act,context:[...selected.values()]}));$('#t').value=''};
+$('#t').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('#f').requestSubmit()}};
+$('#stop').onclick=()=>ws.send(JSON.stringify({type:'stop'}));
+$('#reset').onclick=()=>ws.send(JSON.stringify({type:'reset'}));
+$('#act').onclick=()=>{act=!act;$('#act').classList.toggle('on',act);$('#act').textContent='Act: '+(act?'ON':'off')};
+$('#spk').onclick=()=>{speak=!speak;$('#spk').classList.toggle('on',speak);if(!speak)speechSynthesis.cancel()};
+function say(t){speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t.replace(/[*_`#>]/g,'').slice(0,1200));u.lang=$('#lang').value;speechSynthesis.speak(u)}
+
+// ---- voice in (Chrome/Safari webkitSpeechRecognition) ----
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;let rec=null;
+$('#mic').onclick=()=>{
+  if(!SR){alert('Voice input needs Chrome or Safari.');return}
+  if(rec){rec.stop();return}
+  rec=new SR();rec.lang=$('#lang').value;rec.interimResults=true;rec.continuous=false;
+  rec.onresult=e=>{$('#t').value=[...e.results].map(r=>r[0].transcript).join('')};
+  rec.onend=()=>{rec=null;$('#mic').classList.remove('on');if($('#t').value.trim())$('#f').requestSubmit()};
+  rec.start();$('#mic').classList.add('on');
+};
+</script>
+</body>
+</html>

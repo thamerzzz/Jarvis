@@ -1,0 +1,9 @@
+{
+  "name": "jarvis-ohjiya",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Chat-first Jarvis for Ohjiya: Claude Code bridge + 3D business graph",
+  "scripts": { "start": "node server/index.js" },
+  "dependencies": { "3d-force-graph": "1.73.4", "ws": "8.18.0" }
+}
